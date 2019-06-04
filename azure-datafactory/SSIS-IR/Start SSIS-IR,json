@@ -24,7 +24,7 @@
                 }
             },
             {
-                "name": "If Status",
+                "name": "If less than 0 then start IR",
                 "type": "IfCondition",
                 "dependsOn": [
                     {
