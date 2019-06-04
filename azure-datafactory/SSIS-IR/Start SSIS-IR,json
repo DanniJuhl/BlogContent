@@ -15,7 +15,7 @@
                 "typeProperties": {
                     "source": {
                         "type": "AzureSqlSource",
-                        "sqlReaderQuery": "SELECT \n    COUNT(*) as ActiveWorkers\nFROM catalog.worker_agents\nWHERE DATEDIFF(MINUTE, LastOnlineTime, GETDATE()) <= 1"
+                        "sqlReaderQuery": "SELECT \n    COUNT(*) as ActiveWorkers\nFROM catalog.worker_agents\nWHERE LastOnlineTime >= DATEADD(MINUTE, -1, GETDATE())"
                     },
                     "dataset": {
                         "referenceName": "ds_SqlDatabase",
@@ -24,7 +24,7 @@
                 }
             },
             {
-                "name": "If less than 0 then start IR",
+                "name": "If Status",
                 "type": "IfCondition",
                 "dependsOn": [
                     {
@@ -36,7 +36,7 @@
                 ],
                 "typeProperties": {
                     "expression": {
-                        "value": "@less(\nactivity('Check Worker Status').output.FirstRow.ActiveWorkers,\n1)",
+                        "value": "@equals(activity('Check Worker Status').output.FirstRow.ActiveWorkers, 0)",
                         "type": "Expression"
                     },
                     "ifFalseActivities": [
@@ -61,7 +61,7 @@
                                 "secureInput": false
                             },
                             "typeProperties": {
-                                "url": "https://management.azure.com/subscriptions/{SubscriptionId}/resourcegroups/{ResourceGroup}/providers/Microsoft.DataFactory/factories/{DataFactory}/integrationruntimes/{SSIS-IRName}/start?api-version=2018-06-01",
+                                 "url": "https://management.azure.com/subscriptions/{SubscriptionId}/resourcegroups/{ResourceGroup}/providers/Microsoft.DataFactory/factories/{DataFactory}/integrationruntimes/{SSIS-IRName}/start?api-version=2018-06-01",
                                 "method": "POST",
                                 "body": {
                                     "message": "Start my IR"
