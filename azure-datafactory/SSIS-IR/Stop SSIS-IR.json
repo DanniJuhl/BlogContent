@@ -15,7 +15,7 @@
                 "typeProperties": {
                     "source": {
                         "type": "AzureSqlSource",
-                        "sqlReaderQuery": ";WITH ActiveWorkers as (\nSELECT \n   WorkerAgentId\nFROM catalog.worker_agents\nWHERE DATEDIFF(MINUTE, LastOnlineTime, GETDATE()) <= 1\n\n)\nSELECT COUNT(*)  as ActivePackages FROM catalog.executions exe \nINNER JOIN ActiveWorkers ON exe.worker_agent_id = ActiveWorkers.WorkerAgentId\nWHERE exe.status IN (1,2,5) -- Look only at Created, Running, Pending executions to validate if we can stop the IR. Possible values can be found here: https://docs.microsoft.com/en-us/sql/integration-services/system-views/catalog-executions-ssisdb-database?view=sql-server-2017\n"
+                        "sqlReaderQuery": ";WITH ActiveWorkers as (\nSELECT \n   WorkerAgentId\nFROM catalog.worker_agents\nWHERE LastOnlineTime >= DATEADD(MINUTE, -1, GETDATE())\n)\nSELECT \n    COUNT(*) as ActivePackages,\n    (Select COUNT(*) FROM ActiveWorkers) as ActiveWorkersCount\nFROM catalog.executions\nWHERE status IN (1,2,5);"
                     },
                     "dataset": {
                         "referenceName": "ds_SqlDatabase",
@@ -24,7 +24,7 @@
                 }
             },
             {
-                "name": "If less than 1 then shutdown",
+                "name": "If status",
                 "type": "IfCondition",
                 "dependsOn": [
                     {
@@ -36,12 +36,12 @@
                 ],
                 "typeProperties": {
                     "expression": {
-                        "value": "@less(\nadd(\nactivity('Lookup Active Packages').output.FirstRow.ActivePackages,\nif(equals(pipeline().parameters.ForceStop, true), -65536, 0)\n),\n1)",
+                        "value": "@and(or(equals(\nactivity('Lookup Active Packages').output.FirstRow.ActivePackages, 0),\npipeline().parameters.ForceStop), greater(activity('Lookup Active Packages').output.FirstRow.ActiveWorkersCount, 0))",
                         "type": "Expression"
                     },
                     "ifFalseActivities": [
                         {
-                            "name": "packages running and ForceStop not set",
+                            "name": "No action made - exiting",
                             "type": "Wait",
                             "typeProperties": {
                                 "waitTimeInSeconds": 1
@@ -50,7 +50,7 @@
                     ],
                     "ifTrueActivities": [
                         {
-                            "name": "Stop SSIS-IR",
+                            "name": "API - Stop SSIS-IR",
                             "type": "WebActivity",
                             "policy": {
                                 "timeout": "7.00:00:00",
@@ -60,7 +60,7 @@
                                 "secureInput": false
                             },
                             "typeProperties": {
-                                "url": "https://management.azure.com/subscriptions/{SubscriptionId}/resourcegroups/{ResourceGroup}/providers/Microsoft.DataFactory/factories/{DataFactory}/integrationruntimes/{SSIS-IRName}/stop?api-version=2018-06-01",
+                                "url": "https://management.azure.com/subscriptions/{SubscriptionId}/resourcegroups/{ResourceGroup}/providers/Microsoft.DataFactory/factories/{DataFactoryName}/integrationruntimes/{SSISIRName}/stop?api-version=2018-06-01",
                                 "method": "POST",
                                 "body": {
                                     "message": "Stop my IR"
