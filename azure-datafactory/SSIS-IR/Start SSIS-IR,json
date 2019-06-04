@@ -1,0 +1,84 @@
+{
+    "name": "Start SSIS-IR",
+    "properties": {
+        "activities": [
+            {
+                "name": "Check Worker Status",
+                "type": "Lookup",
+                "policy": {
+                    "timeout": "7.00:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "sqlReaderQuery": "SELECT \n    COUNT(*) as ActiveWorkers\nFROM catalog.worker_agents\nWHERE DATEDIFF(MINUTE, LastOnlineTime, GETDATE()) <= 1"
+                    },
+                    "dataset": {
+                        "referenceName": "ds_SqlDatabase",
+                        "type": "DatasetReference"
+                    }
+                }
+            },
+            {
+                "name": "If Status",
+                "type": "IfCondition",
+                "dependsOn": [
+                    {
+                        "activity": "Check Worker Status",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@less(\nactivity('Check Worker Status').output.FirstRow.ActiveWorkers,\n1)",
+                        "type": "Expression"
+                    },
+                    "ifFalseActivities": [
+                        {
+                            "name": "Integration Runtime is already Running",
+                            "description": "1 second wait is acceptable, to have this shown clearly in the Monitor, that we did nothing with the start. The activity can be deleted, if disagree. ",
+                            "type": "Wait",
+                            "typeProperties": {
+                                "waitTimeInSeconds": 1
+                            }
+                        }
+                    ],
+                    "ifTrueActivities": [
+                        {
+                            "name": "Start SSIS-IR",
+                            "type": "WebActivity",
+                            "policy": {
+                                "timeout": "7.00:00:00",
+                                "retry": 1,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "typeProperties": {
+                                "url": "https://management.azure.com/subscriptions/{SubscriptionId}/resourcegroups/{ResourceGroup}/providers/Microsoft.DataFactory/factories/{DataFactory}/integrationruntimes/{SSIS-IRName}/start?api-version=2018-06-01",
+                                "method": "POST",
+                                "body": {
+                                    "message": "Start my IR"
+                                },
+                                "authentication": {
+                                    "type": "MSI",
+                                    "resource": "https://management.azure.com"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "folder": {
+            "name": "Resource Management"
+        }
+    },
+    "type": "Microsoft.DataFactory/factories/pipelines"
+}
