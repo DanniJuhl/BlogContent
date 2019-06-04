@@ -1,0 +1,89 @@
+{
+    "name": "Stop SSIS-IR",
+    "properties": {
+        "activities": [
+            {
+                "name": "Lookup Active Packages",
+                "type": "Lookup",
+                "policy": {
+                    "timeout": "7.00:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "sqlReaderQuery": ";WITH ActiveWorkers as (\nSELECT \n   WorkerAgentId\nFROM catalog.worker_agents\nWHERE DATEDIFF(MINUTE, LastOnlineTime, GETDATE()) <= 1\n\n)\nSELECT COUNT(*)  as ActivePackages FROM catalog.executions exe \nINNER JOIN ActiveWorkers ON exe.worker_agent_id = ActiveWorkers.WorkerAgentId\nWHERE exe.status IN (1,2,5) -- Look only at Created, Running, Pending executions to validate if we can stop the IR. Possible values can be found here: https://docs.microsoft.com/en-us/sql/integration-services/system-views/catalog-executions-ssisdb-database?view=sql-server-2017\n"
+                    },
+                    "dataset": {
+                        "referenceName": "ds_SqlDatabase",
+                        "type": "DatasetReference"
+                    }
+                }
+            },
+            {
+                "name": "If less than 1 then shutdown",
+                "type": "IfCondition",
+                "dependsOn": [
+                    {
+                        "activity": "Lookup Active Packages",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@less(\nadd(\nactivity('Lookup Active Packages').output.FirstRow.ActivePackages,\nif(equals(pipeline().parameters.ForceStop, true), -65536, 0)\n),\n1)",
+                        "type": "Expression"
+                    },
+                    "ifFalseActivities": [
+                        {
+                            "name": "packages running and ForceStop not set",
+                            "type": "Wait",
+                            "typeProperties": {
+                                "waitTimeInSeconds": 1
+                            }
+                        }
+                    ],
+                    "ifTrueActivities": [
+                        {
+                            "name": "Stop SSIS-IR",
+                            "type": "WebActivity",
+                            "policy": {
+                                "timeout": "7.00:00:00",
+                                "retry": 1,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "typeProperties": {
+                                "url": "https://management.azure.com/subscriptions/{SubscriptionId}/resourcegroups/{ResourceGroup}/providers/Microsoft.DataFactory/factories/{DataFactory}/integrationruntimes/{SSIS-IRName}/stop?api-version=2018-06-01",
+                                "method": "POST",
+                                "body": {
+                                    "message": "Stop my IR"
+                                },
+                                "authentication": {
+                                    "type": "MSI",
+                                    "resource": "https://management.azure.com"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "parameters": {
+            "ForceStop": {
+                "type": "bool",
+                "defaultValue": false
+            }
+        },
+        "folder": {
+            "name": "Resource Management"
+        }
+    },
+    "type": "Microsoft.DataFactory/factories/pipelines"
+}
